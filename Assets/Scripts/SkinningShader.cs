@@ -1,11 +1,9 @@
 ﻿using UnityEngine;
-#if UNITY_EDITOR
 using UnityEditor;
-#endif
 using System.Collections;
 using System.Collections.Generic;
 
-public class GPUSkinning : MonoBehaviour
+public class SkinningShader : MonoBehaviour
 {
     private SkinnedMeshRenderer skinnedMeshRenderer = null;
 
@@ -30,20 +28,84 @@ public class GPUSkinning : MonoBehaviour
         shaderPropID_Matrices = Shader.PropertyToID("_Matrices");
         meshFilter = gameObject.AddComponent<MeshFilter>();
         meshRenderer = gameObject.AddComponent<MeshRenderer>();
-        material = new Material(Shader.Find("Unlit/GPUSkinning"));
+        material = new Material(Shader.Find("Custom/SkinningShader"));
         skinnedMeshRenderer = GetComponentInChildren<SkinnedMeshRenderer>();
         mesh = skinnedMeshRenderer.sharedMesh;
+        material.CopyPropertiesFromMaterial(skinnedMeshRenderer.sharedMaterial);
+        meshRenderer.sharedMaterial = material;
     }
 
-    private Mesh CreateNewMesh(UnityEngine.Mesh mesh, Vector4[] boneWeights)
+
+    private void Start()
     {
-        Mesh newMesh = new Mesh();
-        newMesh.vertices = mesh.vertices; //guarda los vertices
-        newMesh.tangents = boneWeights; //guarda los weights de los huesos en la matriz de tangentes
-        newMesh.uv = mesh.uv; //guarda los UVs
-        newMesh.triangles = mesh.triangles; //guarda los triángulos
-        meshFilter.sharedMesh = newMesh; //el meshFilter es lo que le pasa el mesh al meshRenderer
-        return newMesh;
+        InitBones();
+        ConstructBonesHierarchy();
+        GetBoneWeights();
+        FetchAnimationData();
+
+        Mesh newMesh = CreateNewMesh(mesh, boneWeights);
+
+        GameObject.Destroy(transform.Find("pelvis").gameObject);
+        GameObject.Destroy(transform.Find("mutant_mesh").gameObject);
+        Object.Destroy(gameObject.GetComponent<Animator>());
+    }
+
+    private void InitBones()
+    {
+        bones = new Bone[skinnedMeshRenderer.bones.Length];
+        for (int i = 0; i < bones.Length; ++i)
+        {
+            Bone bone = new Bone();
+            bones[i] = bone;
+            bone.transform = skinnedMeshRenderer.bones[i];
+            bone.bindpose = mesh.bindposes[i]; //la bindpose es la inversa de la matriz de transformación del hueso, cuando el hueso está en la bind pose
+        }
+
+        matricesUniformBlock = new Matrix4x4[bones.Length];
+    }
+
+    private void ConstructBonesHierarchy()
+    {
+        // Construct Bones' Hierarchy
+        for (int i = 0; i < bones.Length; ++i)
+        {
+            if (bones[i].transform == skinnedMeshRenderer.rootBone)
+            {
+                rootBoneIndex = i;
+                break;
+            }
+        }
+        System.Action<Bone> CollectChildren = null;
+        CollectChildren = (currentBone) =>
+        {
+            List<Bone> children = new List<Bone>();
+            for (int j = 0; j < currentBone.transform.childCount; ++j)
+            {
+                Transform childTransform = currentBone.transform.GetChild(j);
+                Bone childBone = GetBoneByTransform(childTransform);
+                if (childBone != null)
+                {
+                    childBone.parent = currentBone;
+                    children.Add(childBone);
+                    CollectChildren(childBone);
+                }
+            }
+            currentBone.children = children.ToArray();
+        };
+        CollectChildren(bones[rootBoneIndex]);
+    }
+
+    private void GetBoneWeights()
+    {
+        boneWeights = new Vector4[mesh.vertexCount];
+        for (int i = 0; i < mesh.vertexCount; ++i)
+        {
+            BoneWeight boneWeight = mesh.boneWeights[i];
+            boneWeights[i].x = boneWeight.boneIndex0;
+            boneWeights[i].y = boneWeight.weight0;
+            boneWeights[i].z = boneWeight.boneIndex1;
+            boneWeights[i].w = boneWeight.weight1;
+        }
     }
 
     private void FetchAnimationData()
@@ -111,87 +173,15 @@ public class GPUSkinning : MonoBehaviour
         }
     }
 
-    private void Start()
+    private Mesh CreateNewMesh(UnityEngine.Mesh mesh, Vector4[] boneWeights)
     {
-
-        InitBones();
-        ConstructBonesHierarchy();
-        GetBoneWeights(mesh);
-        FetchAnimationData();
-        AssetDatabase.CreateAsset(animation, "Assets/GPUSkinning/Resources/anim0.asset");
-        AssetDatabase.Refresh();
-
-        material.CopyPropertiesFromMaterial(skinnedMeshRenderer.sharedMaterial);
-        meshRenderer.sharedMaterial = material;
-
-
-        // New Mesh
-        Mesh newMesh = CreateNewMesh(mesh, boneWeights);
-
-
-        GameObject.Destroy(transform.Find("pelvis").gameObject);
-        GameObject.Destroy(transform.Find("mutant_mesh").gameObject);
-        Object.Destroy(gameObject.GetComponent<Animator>());
-
-        skinnedMeshRenderer.enabled = false;
-    }
-
-    private void InitBones()
-    {
-        bones = new Bone[skinnedMeshRenderer.bones.Length];
-        for (int i = 0; i < bones.Length; ++i)
-        {
-            Bone bone = new Bone();
-            bones[i] = bone;
-            bone.transform = skinnedMeshRenderer.bones[i];
-            bone.bindpose = mesh.bindposes[i]/*smr to bone*/;
-        }
-
-        matricesUniformBlock = new Matrix4x4[bones.Length];
-    }
-
-    private void ConstructBonesHierarchy()
-    {
-        // Construct Bones' Hierarchy
-        for (int i = 0; i < bones.Length; ++i)
-        {
-            if (bones[i].transform == skinnedMeshRenderer.rootBone)
-            {
-                rootBoneIndex = i;
-                break;
-            }
-        }
-        System.Action<Bone> CollectChildren = null;
-        CollectChildren = (currentBone) =>
-        {
-            List<Bone> children = new List<Bone>();
-            for (int j = 0; j < currentBone.transform.childCount; ++j)
-            {
-                Transform childTransform = currentBone.transform.GetChild(j);
-                Bone childBone = GetBoneByTransform(childTransform);
-                if (childBone != null)
-                {
-                    childBone.parent = currentBone;
-                    children.Add(childBone);
-                    CollectChildren(childBone);
-                }
-            }
-            currentBone.children = children.ToArray();
-        };
-        CollectChildren(bones[rootBoneIndex]);
-    }
-
-    private void GetBoneWeights(UnityEngine.Mesh mesh)
-    {
-        boneWeights = new Vector4[mesh.vertexCount];
-        for (int i = 0; i < mesh.vertexCount; ++i)
-        {
-            BoneWeight boneWeight = mesh.boneWeights[i];
-            boneWeights[i].x = boneWeight.boneIndex0;
-            boneWeights[i].y = boneWeight.weight0;
-            boneWeights[i].z = boneWeight.boneIndex1;
-            boneWeights[i].w = boneWeight.weight1;
-        }
+        Mesh newMesh = new Mesh();
+        newMesh.vertices = mesh.vertices; //guarda los vertices
+        newMesh.tangents = boneWeights; //guarda los weights de los huesos en la matriz de tangentes
+        newMesh.uv = mesh.uv; //guarda los UVs
+        newMesh.triangles = mesh.triangles; //guarda los triángulos
+        meshFilter.sharedMesh = newMesh; //el meshFilter es lo que le pasa el mesh al meshRenderer
+        return newMesh;
     }
 
 

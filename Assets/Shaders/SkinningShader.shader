@@ -1,12 +1,11 @@
-﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
-Shader "Unlit/GPUSkinning"
+﻿Shader "Custom/SkinningShader"
 {
 	Properties
 	{
 		_MainTex ("Texture", 2D) = "white" {}
 	}
-		SubShader
+
+	SubShader
 	{
 		Tags { "RenderType" = "Opaque" }
 		LOD 100
