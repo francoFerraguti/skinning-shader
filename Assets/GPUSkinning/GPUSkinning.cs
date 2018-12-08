@@ -7,8 +7,6 @@ using System.Collections.Generic;
 
 public class GPUSkinning : MonoBehaviour
 {
-    public Transform[] spawnPoints = null;
-
     private SkinnedMeshRenderer smr = null;
 
     private Mesh mesh = null;
@@ -25,13 +23,11 @@ public class GPUSkinning : MonoBehaviour
 
     private Mesh newMesh = null;
 
-    private GPUSkinning_BoneAnimation[] boneAnimations = null;
+    private GPUSkinning_BoneAnimation boneAnimation = null;
 
     private Matrix4x4[] matricesUniformBlock = null;
 
     private int shaderPropID_Matrices = 0;
-
-    private GPUSkinning_SpawnObject[] spawnObjects = null;
 
     private void Start()
     {
@@ -109,74 +105,69 @@ public class GPUSkinning : MonoBehaviour
         mf.sharedMesh = newMesh;
 
         // Fetch animations' data
-#if UNITY_EDITOR
         int boneAnimationsCount = 0;
-        boneAnimations = new GPUSkinning_BoneAnimation[GetComponent<Animator>().runtimeAnimatorController.animationClips.Length];
-        foreach (AnimationClip animClip in GetComponent<Animator>().runtimeAnimatorController.animationClips)
+        boneAnimation = ScriptableObject.CreateInstance<GPUSkinning_BoneAnimation>();
+        AnimationClip animClip = GetComponent<Animator>().runtimeAnimatorController.animationClips[0];
+        boneAnimation.fps = 30;
+        boneAnimation.animName = animClip.name;
+        boneAnimation.frames = new GPUSkinning_BoneAnimationFrame[(int)(animClip.length * boneAnimation.fps)];
+        boneAnimation.length = animClip.length;
+
+        for (int frameIndex = 0; frameIndex < boneAnimation.frames.Length; ++frameIndex)
         {
-            GPUSkinning_BoneAnimation boneAnimation = ScriptableObject.CreateInstance<GPUSkinning_BoneAnimation>();
-            boneAnimation.fps = 30;
-            boneAnimation.animName = animClip.name;
-            boneAnimation.frames = new GPUSkinning_BoneAnimationFrame[(int)(animClip.length * boneAnimation.fps)];
-            boneAnimation.length = animClip.length;
-            boneAnimations[boneAnimationsCount++] = boneAnimation;
+            GPUSkinning_BoneAnimationFrame frame = new GPUSkinning_BoneAnimationFrame();
+            boneAnimation.frames[frameIndex] = frame;
+            float second = (float)(frameIndex) / (float)boneAnimation.fps;
 
-            for (int frameIndex = 0; frameIndex < boneAnimation.frames.Length; ++frameIndex)
+            List<GPUSkinning_Bone> bones2 = new List<GPUSkinning_Bone>();
+            List<Matrix4x4> matrices = new List<Matrix4x4>();
+            List<string> bonesHierarchyNames = new List<string>();
+            EditorCurveBinding[] curvesBinding = AnimationUtility.GetCurveBindings(animClip);
+            foreach (var curveBinding in curvesBinding)
             {
-                GPUSkinning_BoneAnimationFrame frame = new GPUSkinning_BoneAnimationFrame();
-                boneAnimation.frames[frameIndex] = frame;
-                float second = (float)(frameIndex) / (float)boneAnimation.fps;
+                GPUSkinning_Bone bone = GetBoneByHierarchyName(curveBinding.path);
 
-                List<GPUSkinning_Bone> bones2 = new List<GPUSkinning_Bone>();
-                List<Matrix4x4> matrices = new List<Matrix4x4>();
-                List<string> bonesHierarchyNames = new List<string>();
-                EditorCurveBinding[] curvesBinding = AnimationUtility.GetCurveBindings(animClip);
-                foreach (var curveBinding in curvesBinding)
+                if (bones2.Contains(bone))
                 {
-                    GPUSkinning_Bone bone = GetBoneByHierarchyName(curveBinding.path);
-
-                    if (bones2.Contains(bone))
-                    {
-                        continue;
-                    }
-                    bones2.Add(bone);
-
-                    bonesHierarchyNames.Add(GetBoneHierarchyName(bone));
-
-                    AnimationCurve curveRX = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.x");
-                    AnimationCurve curveRY = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.y");
-                    AnimationCurve curveRZ = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.z");
-                    AnimationCurve curveRW = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.w");
-
-                    AnimationCurve curvePX = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalPosition.x");
-                    AnimationCurve curvePY = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalPosition.y");
-                    AnimationCurve curvePZ = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalPosition.z");
-
-                    float curveRX_v = curveRX.Evaluate(second);
-                    float curveRY_v = curveRY.Evaluate(second);
-                    float curveRZ_v = curveRZ.Evaluate(second);
-                    float curveRW_v = curveRW.Evaluate(second);
-
-                    float curvePX_v = curvePX.Evaluate(second);
-                    float curvePY_v = curvePY.Evaluate(second);
-                    float curvePZ_v = curvePZ.Evaluate(second);
-
-                    Vector3 translation = new Vector3(curvePX_v, curvePY_v, curvePZ_v);
-                    Quaternion rotation = new Quaternion(curveRX_v, curveRY_v, curveRZ_v, curveRW_v);
-                    NormalizeQuaternion(ref rotation);
-                    matrices.Add(
-                        Matrix4x4.TRS(translation, rotation, Vector3.one)
-                    );
+                    continue;
                 }
+                bones2.Add(bone);
 
-                frame.bones = bones2.ToArray();
-                frame.matrices = matrices.ToArray();
-                frame.bonesHierarchyNames = bonesHierarchyNames.ToArray();
+                bonesHierarchyNames.Add(GetBoneHierarchyName(bone));
+
+                AnimationCurve curveRX = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.x");
+                AnimationCurve curveRY = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.y");
+                AnimationCurve curveRZ = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.z");
+                AnimationCurve curveRW = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.w");
+
+                AnimationCurve curvePX = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalPosition.x");
+                AnimationCurve curvePY = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalPosition.y");
+                AnimationCurve curvePZ = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalPosition.z");
+
+                float curveRX_v = curveRX.Evaluate(second);
+                float curveRY_v = curveRY.Evaluate(second);
+                float curveRZ_v = curveRZ.Evaluate(second);
+                float curveRW_v = curveRW.Evaluate(second);
+
+                float curvePX_v = curvePX.Evaluate(second);
+                float curvePY_v = curvePY.Evaluate(second);
+                float curvePZ_v = curvePZ.Evaluate(second);
+
+                Vector3 translation = new Vector3(curvePX_v, curvePY_v, curvePZ_v);
+                Quaternion rotation = new Quaternion(curveRX_v, curveRY_v, curveRZ_v, curveRW_v);
+                NormalizeQuaternion(ref rotation);
+                matrices.Add(
+                    Matrix4x4.TRS(translation, rotation, Vector3.one)
+                );
             }
+
+            frame.bones = bones2.ToArray();
+            frame.matrices = matrices.ToArray();
+            frame.bonesHierarchyNames = bonesHierarchyNames.ToArray();
         }
-        AssetDatabase.CreateAsset(boneAnimations[0], "Assets/GPUSkinning/Resources/anim0.asset");
+
+        AssetDatabase.CreateAsset(boneAnimation, "Assets/GPUSkinning/Resources/anim0.asset");
         AssetDatabase.Refresh();
-#endif
 
         GameObject.Destroy(transform.Find("pelvis").gameObject);
         GameObject.Destroy(transform.Find("mutant_mesh").gameObject);
@@ -188,7 +179,7 @@ public class GPUSkinning : MonoBehaviour
     private float second = 0.0f;
     private void Update()
     {
-        UpdateBoneAnimationMatrix(null, second);
+        UpdateBoneAnimationMatrix(null, second); //franco. Poniendo esta línea al principio, se queda en el primer frame. Osea que esto "avanza" la animación
         Play();
         second += Time.deltaTime;
     }
@@ -205,7 +196,6 @@ public class GPUSkinning : MonoBehaviour
 
     private void UpdateBoneAnimationMatrix(string animName, float time)
     {
-        GPUSkinning_BoneAnimation boneAnimation = boneAnimations[0];//GetBoneAnimation(animName);
         int frameIndex = (int)(time * boneAnimation.fps) % (int)(boneAnimation.length * boneAnimation.fps);
         GPUSkinning_BoneAnimationFrame frame = boneAnimation.frames[frameIndex];
 
@@ -323,18 +313,6 @@ public class GPUSkinning : MonoBehaviour
         float magnitudeInverse = 1 / Mathf.Sqrt(sum);
         for (int i = 0; i < 4; ++i)
             q[i] *= magnitudeInverse;
-    }
-
-    private GPUSkinning_BoneAnimation GetBoneAnimation(string animName)
-    {
-        foreach (var item in boneAnimations)
-        {
-            if (item.animName == animName)
-            {
-                return item;
-            }
-        }
-        return null;
     }
 
     private int BoneAnimationFrameIndexOf(GPUSkinning_BoneAnimationFrame frame, GPUSkinning_Bone bone)

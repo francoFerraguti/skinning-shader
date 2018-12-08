@@ -7,7 +7,7 @@ public class GPUSkinning_BoneAnimation : ScriptableObject
 
     public GPUSkinning_BoneAnimationFrame[] frames = null;
 
-    public float length = 0;/*seconds*/
+    public float length = 0; /*in seconds*/
 
     public int fps = 0;
 }
