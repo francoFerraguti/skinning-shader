@@ -7,125 +7,69 @@ using System.Collections.Generic;
 
 public class GPUSkinning : MonoBehaviour
 {
-    private SkinnedMeshRenderer smr = null;
+    private SkinnedMeshRenderer skinnedMeshRenderer = null;
 
+    private Animation animation = null;
     private Mesh mesh = null;
-
-    private GPUSkinning_Bone[] bones = null;
+    private Bone[] bones = null;
+    private Vector4[] boneWeights = null;
 
     private int rootBoneIndex = 0;
 
-    private MeshFilter mf = null;
-
-    private MeshRenderer mr = null;
-
-    private Material newMtrl = null;
-
-    private Mesh newMesh = null;
-
-    private GPUSkinning_BoneAnimation boneAnimation = null;
+    private MeshFilter meshFilter = null;
+    private MeshRenderer meshRenderer = null;
+    private Material material = null;
 
     private Matrix4x4[] matricesUniformBlock = null;
-
     private int shaderPropID_Matrices = 0;
 
-    private void Start()
+    private float timer = 0.0f;
+
+    private void Awake()
     {
         shaderPropID_Matrices = Shader.PropertyToID("_Matrices");
+        meshFilter = gameObject.AddComponent<MeshFilter>();
+        meshRenderer = gameObject.AddComponent<MeshRenderer>();
+        material = new Material(Shader.Find("Unlit/GPUSkinning"));
+        skinnedMeshRenderer = GetComponentInChildren<SkinnedMeshRenderer>();
+        mesh = skinnedMeshRenderer.sharedMesh;
+    }
 
-        smr = GetComponentInChildren<SkinnedMeshRenderer>();
-        mesh = smr.sharedMesh;
+    private Mesh CreateNewMesh(UnityEngine.Mesh mesh, Vector4[] boneWeights)
+    {
+        Mesh newMesh = new Mesh();
+        newMesh.vertices = mesh.vertices; //guarda los vertices
+        newMesh.tangents = boneWeights; //guarda los weights de los huesos en la matriz de tangentes
+        newMesh.uv = mesh.uv; //guarda los UVs
+        newMesh.triangles = mesh.triangles; //guarda los triángulos
+        meshFilter.sharedMesh = newMesh; //el meshFilter es lo que le pasa el mesh al meshRenderer
+        return newMesh;
+    }
 
-        // Init Bones
-        int numBones = smr.bones.Length;
-        bones = new GPUSkinning_Bone[numBones];
-        for (int i = 0; i < numBones; ++i)
-        {
-            GPUSkinning_Bone bone = new GPUSkinning_Bone();
-            bones[i] = bone;
-            bone.transform = smr.bones[i];
-            bone.bindpose = mesh.bindposes[i]/*smr to bone*/;
-        }
-
-        matricesUniformBlock = new Matrix4x4[numBones];
-
-        // Construct Bones' Hierarchy
-        for (int i = 0; i < numBones; ++i)
-        {
-            if (bones[i].transform == smr.rootBone)
-            {
-                rootBoneIndex = i;
-                break;
-            }
-        }
-        System.Action<GPUSkinning_Bone> CollectChildren = null;
-        CollectChildren = (currentBone) =>
-        {
-            List<GPUSkinning_Bone> children = new List<GPUSkinning_Bone>();
-            for (int j = 0; j < currentBone.transform.childCount; ++j)
-            {
-                Transform childTransform = currentBone.transform.GetChild(j);
-                GPUSkinning_Bone childBone = GetBoneByTransform(childTransform);
-                if (childBone != null)
-                {
-                    childBone.parent = currentBone;
-                    children.Add(childBone);
-                    CollectChildren(childBone);
-                }
-            }
-            currentBone.children = children.ToArray();
-        };
-        CollectChildren(bones[rootBoneIndex]);
-
-        // New MeshFilter MeshRenderer
-        mf = gameObject.AddComponent<MeshFilter>();
-        mr = gameObject.AddComponent<MeshRenderer>();
-
-        newMtrl = new Material(Shader.Find("Unlit/GPUSkinning"));
-        newMtrl.CopyPropertiesFromMaterial(smr.sharedMaterial);
-        mr.sharedMaterial = newMtrl;
-
-        // Fetch bone-weight storing as tangents
-        Vector4[] tangents = new Vector4[mesh.vertexCount];
-        for (int i = 0; i < mesh.vertexCount; ++i)
-        {
-            BoneWeight boneWeight = mesh.boneWeights[i];
-            tangents[i].x = boneWeight.boneIndex0;
-            tangents[i].y = boneWeight.weight0;
-            tangents[i].z = boneWeight.boneIndex1;
-            tangents[i].w = boneWeight.weight1;
-        }
-
-        // New Mesh
-        newMesh = new Mesh();
-        newMesh.vertices = mesh.vertices;
-        newMesh.tangents = tangents;
-        newMesh.uv = mesh.uv;
-        newMesh.triangles = mesh.triangles;
-        mf.sharedMesh = newMesh;
-
+    private void FetchAnimationData()
+    {
         // Fetch animations' data
         int boneAnimationsCount = 0;
-        boneAnimation = ScriptableObject.CreateInstance<GPUSkinning_BoneAnimation>();
+        animation = ScriptableObject.CreateInstance<Animation>();
         AnimationClip animClip = GetComponent<Animator>().runtimeAnimatorController.animationClips[0];
-        boneAnimation.fps = 30;
-        boneAnimation.animName = animClip.name;
-        boneAnimation.frames = new GPUSkinning_BoneAnimationFrame[(int)(animClip.length * boneAnimation.fps)];
-        boneAnimation.length = animClip.length;
+        animation.fps = 30;
+        animation.name = animClip.name;
+        animation.frames = new Frame[(int)(animClip.length * animation.fps)];
+        animation.length = animClip.length;
 
-        for (int frameIndex = 0; frameIndex < boneAnimation.frames.Length; ++frameIndex)
+        for (int frameIndex = 0; frameIndex < animation.frames.Length; ++frameIndex)
         {
-            GPUSkinning_BoneAnimationFrame frame = new GPUSkinning_BoneAnimationFrame();
-            boneAnimation.frames[frameIndex] = frame;
-            float second = (float)(frameIndex) / (float)boneAnimation.fps;
+            Frame frame = new Frame();
+            animation.frames[frameIndex] = frame;
+            float second = (float)(frameIndex) / (float)animation.fps;
 
-            List<GPUSkinning_Bone> bones2 = new List<GPUSkinning_Bone>();
+            List<Bone> bones2 = new List<Bone>();
             List<Matrix4x4> matrices = new List<Matrix4x4>();
             List<string> bonesHierarchyNames = new List<string>();
             EditorCurveBinding[] curvesBinding = AnimationUtility.GetCurveBindings(animClip);
             foreach (var curveBinding in curvesBinding)
             {
-                GPUSkinning_Bone bone = GetBoneByHierarchyName(curveBinding.path);
+                Bone bone = GetBoneByHierarchyName(curveBinding.path);
 
                 if (bones2.Contains(bone))
                 {
@@ -165,23 +109,97 @@ public class GPUSkinning : MonoBehaviour
             frame.matrices = matrices.ToArray();
             frame.bonesHierarchyNames = bonesHierarchyNames.ToArray();
         }
+    }
 
-        AssetDatabase.CreateAsset(boneAnimation, "Assets/GPUSkinning/Resources/anim0.asset");
+    private void Start()
+    {
+
+        InitBones();
+        ConstructBonesHierarchy();
+        GetBoneWeights(mesh);
+        FetchAnimationData();
+        AssetDatabase.CreateAsset(animation, "Assets/GPUSkinning/Resources/anim0.asset");
         AssetDatabase.Refresh();
+
+        material.CopyPropertiesFromMaterial(skinnedMeshRenderer.sharedMaterial);
+        meshRenderer.sharedMaterial = material;
+
+
+        // New Mesh
+        Mesh newMesh = CreateNewMesh(mesh, boneWeights);
+
 
         GameObject.Destroy(transform.Find("pelvis").gameObject);
         GameObject.Destroy(transform.Find("mutant_mesh").gameObject);
         Object.Destroy(gameObject.GetComponent<Animator>());
 
-        smr.enabled = false;
+        skinnedMeshRenderer.enabled = false;
     }
 
-    private float second = 0.0f;
+    private void InitBones()
+    {
+        bones = new Bone[skinnedMeshRenderer.bones.Length];
+        for (int i = 0; i < bones.Length; ++i)
+        {
+            Bone bone = new Bone();
+            bones[i] = bone;
+            bone.transform = skinnedMeshRenderer.bones[i];
+            bone.bindpose = mesh.bindposes[i]/*smr to bone*/;
+        }
+
+        matricesUniformBlock = new Matrix4x4[bones.Length];
+    }
+
+    private void ConstructBonesHierarchy()
+    {
+        // Construct Bones' Hierarchy
+        for (int i = 0; i < bones.Length; ++i)
+        {
+            if (bones[i].transform == skinnedMeshRenderer.rootBone)
+            {
+                rootBoneIndex = i;
+                break;
+            }
+        }
+        System.Action<Bone> CollectChildren = null;
+        CollectChildren = (currentBone) =>
+        {
+            List<Bone> children = new List<Bone>();
+            for (int j = 0; j < currentBone.transform.childCount; ++j)
+            {
+                Transform childTransform = currentBone.transform.GetChild(j);
+                Bone childBone = GetBoneByTransform(childTransform);
+                if (childBone != null)
+                {
+                    childBone.parent = currentBone;
+                    children.Add(childBone);
+                    CollectChildren(childBone);
+                }
+            }
+            currentBone.children = children.ToArray();
+        };
+        CollectChildren(bones[rootBoneIndex]);
+    }
+
+    private void GetBoneWeights(UnityEngine.Mesh mesh)
+    {
+        boneWeights = new Vector4[mesh.vertexCount];
+        for (int i = 0; i < mesh.vertexCount; ++i)
+        {
+            BoneWeight boneWeight = mesh.boneWeights[i];
+            boneWeights[i].x = boneWeight.boneIndex0;
+            boneWeights[i].y = boneWeight.weight0;
+            boneWeights[i].z = boneWeight.boneIndex1;
+            boneWeights[i].w = boneWeight.weight1;
+        }
+    }
+
+
     private void Update()
     {
-        UpdateBoneAnimationMatrix(null, second); //franco. Poniendo esta línea al principio, se queda en el primer frame. Osea que esto "avanza" la animación
+        UpdateBoneAnimationMatrix(null, timer); //poniendo esta línea al principio, se queda en el primer frame. Osea que esto "avanza" la animación
         Play();
-        second += Time.deltaTime;
+        timer += Time.deltaTime;
     }
 
     private void Play()
@@ -191,46 +209,33 @@ public class GPUSkinning : MonoBehaviour
         {
             matricesUniformBlock[i] = bones[i].animationMatrix;
         }
-        newMtrl.SetMatrixArray(shaderPropID_Matrices, matricesUniformBlock);
+        material.SetMatrixArray(shaderPropID_Matrices, matricesUniformBlock);
     }
 
     private void UpdateBoneAnimationMatrix(string animName, float time)
     {
-        int frameIndex = (int)(time * boneAnimation.fps) % (int)(boneAnimation.length * boneAnimation.fps);
-        GPUSkinning_BoneAnimationFrame frame = boneAnimation.frames[frameIndex];
+        int frameIndex = (int)(time * animation.fps) % (int)(animation.length * animation.fps);
+        Frame frame = animation.frames[frameIndex];
 
         UpdateBoneTransformMatrix(bones[rootBoneIndex], Matrix4x4.identity, frame);
     }
 
-    private void UpdateBoneTransformMatrix(GPUSkinning_Bone bone, Matrix4x4 parentMatrix, GPUSkinning_BoneAnimationFrame frame)
+    private void UpdateBoneTransformMatrix(Bone bone, Matrix4x4 parentMatrix, Frame frame)
     {
-        int index = BoneAnimationFrameIndexOf(frame, bone);
+        int index = frame.IndexOf(bone);
         Matrix4x4 mat = parentMatrix * frame.matrices[index];
         bone.animationMatrix = mat * bone.bindpose;
 
-        GPUSkinning_Bone[] children = bone.children;
-        int numChildren = children.Length;
-        for (int i = 0; i < numChildren; ++i)
+        Bone[] children = bone.children;
+        for (int i = 0; i < children.Length; ++i)
         {
             UpdateBoneTransformMatrix(children[i], mat, frame);
         }
     }
 
-    private void OnDestroy()
+    private Bone GetBoneByTransform(Transform transform)
     {
-        if (newMtrl != null)
-        {
-            Object.Destroy(newMtrl);
-        }
-        if (newMesh != null)
-        {
-            Object.Destroy(newMesh);
-        }
-    }
-
-    private GPUSkinning_Bone GetBoneByTransform(Transform transform)
-    {
-        foreach (GPUSkinning_Bone bone in bones)
+        foreach (Bone bone in bones)
         {
             if (bone.transform == transform)
             {
@@ -240,18 +245,18 @@ public class GPUSkinning : MonoBehaviour
         return null;
     }
 
-    private GPUSkinning_Bone GetBoneByHierarchyName(string hierarchyName)
+    private Bone GetBoneByHierarchyName(string hierarchyName)
     {
-        System.Func<GPUSkinning_Bone, string, GPUSkinning_Bone> Search = null;
+        System.Func<Bone, string, Bone> Search = null;
         Search = (bone, name) =>
         {
             if (name == hierarchyName)
             {
                 return bone;
             }
-            foreach (GPUSkinning_Bone child in bone.children)
+            foreach (Bone child in bone.children)
             {
-                GPUSkinning_Bone result = Search(child, name + "/" + child.name);
+                Bone result = Search(child, name + "/" + child.name);
                 if (result != null)
                 {
                     return result;
@@ -263,49 +268,29 @@ public class GPUSkinning : MonoBehaviour
         return Search(bones[rootBoneIndex], bones[rootBoneIndex].name);
     }
 
-    private string GetBoneHierarchyName(GPUSkinning_Bone bone)
+    private string GetBoneHierarchyName(Bone bone)
     {
-        string str = string.Empty;
+        string boneHierarchy = "";
 
-        GPUSkinning_Bone currentBone = bone;
-        while (currentBone != null)
+        Bone currentBone = bone; //agarra el primer hueso
+        while (currentBone != null)  //va asignándole el padre hasta llegar al hueso root
         {
-            if (str == string.Empty)
+            if (boneHierarchy == "") //si este es el primer hueso que chequeo, le asigno el nombre a boneHierarchy.
             {
-                str = currentBone.name;
+                boneHierarchy = currentBone.name;
             }
-            else
+            else //sino, le asigno el nuevo nombre / el viejo nombre
             {
-                str = currentBone.name + "/" + str;
+                boneHierarchy = currentBone.name + "/" + boneHierarchy;
             }
 
-            currentBone = currentBone.parent;
+            currentBone = currentBone.parent; //asigna el padre, que si es null rompe el ciclo
         }
 
-        return str;
+        return boneHierarchy;
     }
 
-    private void PrintBones()
-    {
-        string text = string.Empty;
-
-        System.Action<GPUSkinning_Bone, string> PrintBone = null;
-        PrintBone = (bone, prefix) =>
-        {
-            text += prefix + bone.transform.gameObject.name + "\n";
-            prefix += "    ";
-            foreach (var childBone in bone.children)
-            {
-                PrintBone(childBone, prefix);
-            }
-        };
-
-        PrintBone(bones[rootBoneIndex], string.Empty);
-
-        Debug.LogError(text);
-    }
-
-    private void NormalizeQuaternion(ref Quaternion q)
+    private void NormalizeQuaternion(ref Quaternion q) //normaliza los cuaterniones
     {
         float sum = 0;
         for (int i = 0; i < 4; ++i)
@@ -313,19 +298,5 @@ public class GPUSkinning : MonoBehaviour
         float magnitudeInverse = 1 / Mathf.Sqrt(sum);
         for (int i = 0; i < 4; ++i)
             q[i] *= magnitudeInverse;
-    }
-
-    private int BoneAnimationFrameIndexOf(GPUSkinning_BoneAnimationFrame frame, GPUSkinning_Bone bone)
-    {
-        GPUSkinning_Bone[] bones = frame.bones;
-        int numBones = bones.Length;
-        for (int i = 0; i < numBones; ++i)
-        {
-            if (bones[i] == bone)
-            {
-                return i;
-            }
-        }
-        return -1;
     }
 }

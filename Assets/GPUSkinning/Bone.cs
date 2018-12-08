@@ -1,15 +1,15 @@
 ﻿using UnityEngine;
 using System.Collections;
 
-public class GPUSkinning_Bone
+public class Bone
 {
     public Transform transform = null;
 
     public Matrix4x4 bindpose;
 
-    public GPUSkinning_Bone parent = null;
+    public Bone parent = null;
 
-    public GPUSkinning_Bone[] children = null;
+    public Bone[] children = null;
 
     public Matrix4x4 animationMatrix;
 

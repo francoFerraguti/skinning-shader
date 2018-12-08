@@ -8,10 +8,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ccedf586c574f5d44b1f8c666d1593ba, type: 3}
+  m_Script: {fileID: 11500000, guid: 71afd8f6cddfaa344bdc644540c31bc9, type: 3}
   m_Name: anim0
   m_EditorClassIdentifier: 
-  animName: WalkF
+  name: WalkF
   frames:
   - bonesHierarchyNames:
     - pelvis
