@@ -7,7 +7,6 @@
 
 	SubShader
 	{
-		Tags { "RenderType" = "Opaque" }
 		LOD 100
 
 		Pass
@@ -24,7 +23,7 @@
 			{
 				float4 vertex : POSITION;
 				float2 uv : TEXCOORD0;
-				float4 tangent : TANGENT;
+				float4 tangent : TANGENT; //los índices de los huesos y sus respectivos weights
 			};
 
 			struct v2f
@@ -40,12 +39,11 @@
 			{
 				v2f o;
 
-				float4 pos = 
-					mul(_Matrices[v.tangent.x], v.vertex) * v.tangent.y + 
-					mul(_Matrices[v.tangent.z], v.vertex) * v.tangent.w;
+				float4 pos = mul(_Matrices[v.tangent.x], v.vertex) * v.tangent.y + mul(_Matrices[v.tangent.z], v.vertex) * v.tangent.w;
+				//multiplica a la posición del vértice por las transformaciones de las matrices, y luego por el peso de cada hueso
 
-				o.vertex = UnityObjectToClipPos(pos);
-				o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+				o.vertex = UnityObjectToClipPos(pos); //transforma el espacio local en espacio de clip y usando la cámara de la escena
+				o.uv = TRANSFORM_TEX(v.uv, _MainTex); //
 				return o;
 			}
 			
