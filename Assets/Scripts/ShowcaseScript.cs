@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class ShowcaseScript : MonoBehaviour
 {
-    float rotatingSpeed = 20.0f;
+    float rotatingSpeed = 0.0f;
 
     void Update()
     {

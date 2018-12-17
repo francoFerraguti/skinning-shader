@@ -23,8 +23,6 @@ public class SkinningShader : MonoBehaviour
 
     private float timer = 0.0f;
 
-
-
     private void Awake()
     {
         shaderPropID_Matrices = Shader.PropertyToID("_Matrices");
@@ -49,18 +47,10 @@ public class SkinningShader : MonoBehaviour
         //Debug.Break();
 
         Object.Destroy(gameObject.GetComponent<Animator>());
-        if (GameObject.Find("pelvis"))
-        {
-            GameObject.Destroy(transform.Find("pelvis").gameObject);
-            GameObject.Destroy(transform.Find("Mesh").gameObject);
-        }
 
-        if (GameObject.Find("gallina").gameObject != null)
+        foreach (GameObject oldMeshes in GameObject.FindGameObjectsWithTag("Destructable"))
         {
-            GameObject.Destroy(transform.Find("Clinidro").gameObject);
-            GameObject.Destroy(transform.Find("Cilindro.001").gameObject);
-            GameObject.Destroy(transform.Find("Cilindro.010").gameObject);
-            GameObject.Destroy(transform.Find("Esqueleto").gameObject);
+            GameObject.Destroy(oldMeshes);
         }
     }
 
@@ -95,25 +85,42 @@ public class SkinningShader : MonoBehaviour
             }
         }
 
-        CollectChildren(bones[rootBoneIndex]);
+        CollectChildren(bones[rootBoneIndex], true, true);
     }
 
-    private void CollectChildren(Bone currentBone) //settea en cada Bone sus children correspondientes
+    private void CollectChildren(Bone currentBone, bool checkChildren, bool checkParent) //settea en cada Bone sus children correspondientes
     {
-        List<Bone> children = new List<Bone>();
-        for (int j = 0; j < currentBone.transform.childCount; ++j)
+        if (checkParent)
         {
-            Transform childTransform = currentBone.transform.GetChild(j);
-            Bone childBone = GetBoneByTransform(childTransform);
-            if (childBone != null)
+            Transform parentTransform = currentBone.transform.parent;
+            Bone parentBone = GetBoneByTransform(parentTransform);
+            if (parentBone != null)
             {
-                childBone.parent = currentBone;
-                children.Add(childBone);
-                //Debug.Log("children setteados");
-                CollectChildren(childBone);
+                currentBone.parent = parentBone;
+                Debug.Log("El padre de " + currentBone.name + " es " + parentBone.name);
+                CollectChildren(parentBone, false, true);
             }
         }
-        currentBone.children = children.ToArray();
+
+        if (checkChildren)
+        {
+            List<Bone> children = new List<Bone>();
+            for (int j = 0; j < currentBone.transform.childCount; ++j)
+            {
+                Transform childTransform = currentBone.transform.GetChild(j);
+                Bone childBone = GetBoneByTransform(childTransform);
+                if (childBone != null)
+                {
+                    if (checkChildren)
+                    {
+                        childBone.parent = currentBone;
+                        children.Add(childBone);
+                    }
+                    CollectChildren(childBone, true, false);
+                }
+            }
+            currentBone.children = children.ToArray();
+        }
     }
 
     private void GetBoneWeights() //Devuelve los weights de cada Bone, sacados del mesh
@@ -159,25 +166,25 @@ public class SkinningShader : MonoBehaviour
 
             foreach (var curveBinding in curvesBinding)
             {
-                //Debug.Log(curveBinding.path + "es uno de los curveBindings del frame" + frameIndex);
-            }
-            foreach (var curveBinding in curvesBinding)
-            {
-                //Debug.Log("añadiendo hueso al frame: " + curveBinding.path);
+
+                if (curveBinding.path == "Armature" || curveBinding.path == "Esqueleto")
+                {
+                    continue;
+                }
 
                 Bone bone = GetBoneByHierarchyName(curveBinding.path);
 
-                //Debug.Log("bone está correcto, es " + bone.name);
-
-                if (bonesAlreadyCalculated.Contains(bone))
+                if (bone == null || bonesAlreadyCalculated.Contains(bone))
                 {
                     //Debug.Log("fin");
                     continue;
                 }
 
-                //Debug.Log("1");
+                Debug.Log("1");
 
                 bonesHierarchyNames.Add(GetBoneHierarchyName(bone));
+
+                Debug.Log("2");
 
                 AnimationCurve curveRotX = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.x");
                 AnimationCurve curveRotY = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.y");
@@ -282,7 +289,7 @@ public class SkinningShader : MonoBehaviour
     private Bone SearchBone(Bone bone, string boneName, string hierarchyName, bool searchChildren, bool searchParent)
     {
         //Debug.Log("EMPEZANDO: " + bone.name + " - " + boneName + " - " + hierarchyName);
-        if (boneName == hierarchyName)
+        if (boneName == hierarchyName || "Armature/" + boneName == hierarchyName || "Esqueleto/" + boneName == hierarchyName)
         {
             //Debug.Log("hueso encontrado normal: " + bone.name);
             return bone;
