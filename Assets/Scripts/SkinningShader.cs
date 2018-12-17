@@ -151,7 +151,7 @@ public class SkinningShader : MonoBehaviour
 
         for (int frameIndex = 0; frameIndex < animation.frames.Length; frameIndex++)
         {
-            Debug.Log("calculando animación para frame " + frameIndex);
+            //Debug.Log("calculando animación para frame " + frameIndex);
 
             Frame frame = new Frame();
             animation.frames[frameIndex] = frame;
@@ -180,11 +180,7 @@ public class SkinningShader : MonoBehaviour
                     continue;
                 }
 
-                Debug.Log("1");
-
                 bonesHierarchyNames.Add(GetBoneHierarchyName(bone));
-
-                Debug.Log("2");
 
                 AnimationCurve curveRotX = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.x");
                 AnimationCurve curveRotY = AnimationUtility.GetEditorCurve(animClip, curveBinding.path, curveBinding.type, "m_LocalRotation.y");
